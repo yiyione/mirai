@@ -1,15 +1,15 @@
 # Mirai Guide - Quick Start
 
-由于 mirai 项目在快速推进中，因此内容时有变动，本文档的最后更新日期为```2020/5/11```，对应版本```1.0-RC2-1```
+由于 mirai 项目在快速推进中，因此内容时有变动，本文档的最后更新日期为```2020/6/22```，对应版本```1.0.2```
 
 本文适用于对 Kotlin 较熟悉的开发者,  
-使用 mirai 作为第三方依赖库引用任意一个 Kotlin, Java 或其他 JVM 平台的项目
+使用 mirai 作为第三方依赖库引用到任意一个 Kotlin, Java 或其他 JVM 平台的项目
 
 **若你希望一份更基础的教程**, 请参阅: [mirai-guide-getting-started](guide_getting_started.md)
 
 ## 构建需求
 
-- Kotlin 1.3.71 (必须)
+- Kotlin 1.3.72 (必须)
 - JDK 6 或更高 (必须)
 
 ## 获取 Demo
@@ -21,6 +21,12 @@
 [![Download](https://api.bintray.com/packages/him188moe/mirai/mirai-core/images/download.svg)](https://bintray.com/him188moe/mirai/mirai-core/)  
 
 ### 添加依赖
+可通过以下三种方法之一添加 mirai 依赖.
+
+#### 直接导入jar包 (不推荐)
+下载已经编译好的 Jar 包, 并添加 Jar 依赖:
+- [mirai-core](https://github.com/mamoe/mirai-repo/tree/master/shadow/mirai-core)
+- [mirai-qqandriod](https://github.com/mamoe/mirai-repo/tree/master/shadow/mirai-core-qqandroid)
 
 #### Maven
 
@@ -45,7 +51,7 @@ Kotlin 在 Maven 上只支持 JVM 平台.
 </dependencies>
 ```
 
-#### Gradle
+#### Gradle (推荐)
 
 Mirai 只发布在 `jcenter`, 因此请确保添加 `jcenter()` 仓库：
 
@@ -84,9 +90,9 @@ implementation("net.mamoe:mirai-core-qqandroid-android:VERSION")
 val bot = Bot(qqId, password).alsoLogin()
 bot.subscribeAlways<GroupMessageEvent> { event ->
   if (event.message.content.contains("你好")) {
-    reply("你好!")
+     reply("你好!")
   } else if (event.message.content.contains("你好")) {
-     File("C:\\image.png").uploadAsImage()
+     File("C:\\image.png").sendAsImage()
   } 
 }
 

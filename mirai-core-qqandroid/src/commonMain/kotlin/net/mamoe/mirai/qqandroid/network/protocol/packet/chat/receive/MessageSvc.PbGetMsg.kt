@@ -7,11 +7,14 @@
  * https://github.com/mamoe/mirai/blob/master/LICENSE
  */
 
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package net.mamoe.mirai.qqandroid.network.protocol.packet.chat.receive
 
 import kotlinx.atomicfu.loop
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.withLock
 import kotlinx.io.core.ByteReadPacket
 import kotlinx.io.core.discardExact
 import net.mamoe.mirai.contact.Group
@@ -45,7 +48,6 @@ import net.mamoe.mirai.qqandroid.utils.io.serialization.readProtoBuf
 import net.mamoe.mirai.qqandroid.utils.io.serialization.toByteArray
 import net.mamoe.mirai.qqandroid.utils.io.serialization.writeProtoBuf
 import net.mamoe.mirai.qqandroid.utils.read
-import net.mamoe.mirai.qqandroid.utils.soutv
 import net.mamoe.mirai.qqandroid.utils.toUHexString
 import net.mamoe.mirai.utils.currentTimeSeconds
 import net.mamoe.mirai.utils.debug
@@ -105,42 +107,6 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
 
     object EmptyResponse : GetMsgSuccess(emptyList())
 
-    private suspend fun MsgComm.Msg.getNewGroup(bot: QQAndroidBot): Group? {
-        val troopNum = bot.network.run {
-            FriendList.GetTroopListSimplify(bot.client)
-                .sendAndExpect<FriendList.GetTroopListSimplify.Response>(retry = 2)
-        }.groups.firstOrNull { it.groupUin == msgHead.fromUin } ?: return null
-
-        @Suppress("DuplicatedCode")
-        return GroupImpl(
-            bot = bot,
-            coroutineContext = bot.coroutineContext,
-            id = Group.calculateGroupCodeByGroupUin(msgHead.fromUin),
-            groupInfo = bot._lowLevelQueryGroupInfo(troopNum.groupCode).apply {
-                this as GroupInfoImpl
-
-                if (this.delegate.groupName == null) {
-                    this.delegate.groupName = troopNum.groupName
-                }
-
-                if (this.delegate.groupMemo == null) {
-                    this.delegate.groupMemo = troopNum.groupMemo
-                }
-
-                if (this.delegate.groupUin == null) {
-                    this.delegate.groupUin = troopNum.groupUin
-                }
-
-                this.delegate.groupCode = troopNum.groupCode
-            },
-            members = bot._lowLevelQueryGroupMemberList(
-                troopNum.groupUin,
-                troopNum.groupCode,
-                troopNum.dwGroupOwnerUin
-            )
-        )
-    }
-
     private fun MsgComm.Msg.getNewMemberInfo(): MemberInfo {
         return object : MemberInfo {
             override val nameCard: String get() = ""
@@ -181,8 +147,7 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
             .mapNotNull<MsgComm.Msg, Packet> { msg ->
 
                 when (msg.msgHead.msgType) {
-                    33 -> { // 邀请入群
-
+                    33 -> bot.groupListModifyLock.withLock { // 邀请入群
                         val group = bot.getGroupByUinOrNull(msg.msgHead.fromUin)
                         if (msg.msgHead.authUin == bot.id) {
                             if (group != null) {
@@ -190,10 +155,10 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
                             }
                             // 新群
 
-                            val newGroup = msg.getNewGroup(bot) ?: return@mapNotNull null
-                            @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+                            val newGroup = bot.getNewGroup(Group.calculateGroupCodeByGroupUin(msg.msgHead.fromUin))
+                                ?: return@mapNotNull null
                             bot.groups.delegate.addLast(newGroup)
-                            return@mapNotNull BotJoinGroupEvent(newGroup)
+                            return@mapNotNull BotJoinGroupEvent.Active(newGroup)
                         } else {
                             group ?: return@mapNotNull null
 
@@ -203,7 +168,7 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
                             // 有人被邀请(经过同意后)加入      27 0B 60 E7 01 76 E4 B8 DD 83 3E 03 3F A2 06 B4 B4 BD A8 D5 DF 00 30 34 30 34 38 32 33 38 35 37 41 37 38 46 33 45 37 35 38 42 39 38 46 43 45 44 43 32 41 30 31 36 36 30 34 31 36 39 35 39 30 38 39 30 39 45 31 34 34
                             // 搜索到群, 直接加入             27 0B 60 E7 01 07 6E 47 BA 82 3E 03 3F A2 06 B4 B4 BD A8 D5 DF 00 30 32 30 39 39 42 39 41 46 32 39 41 35 42 33 46 34 32 30 44 36 44 36 39 35 44 38 45 34 35 30 46 30 45 30 38 45 31 41 39 42 46 46 45 32 30 32 34 35
 
-                            msg.msgBody.msgContent.soutv("33类型的content")
+                            // msg.msgBody.msgContent.soutv("33类型的content")
 
                             if (group.members.contains(msg.msgHead.authUin)) {
                                 return@mapNotNull null
@@ -213,12 +178,10 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
                                     discardExact(9)
                                     readByte().toInt().and(0xff)
                                 } == 0x83) {
-                                @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
                                 return@mapNotNull MemberJoinEvent.Invite(group.newMember(msg.getNewMemberInfo())
                                     .also { group.members.delegate.addLast(it) })
                             }
 
-                            @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
                             return@mapNotNull MemberJoinEvent.Active(group.newMember(msg.getNewMemberInfo())
                                 .also { group.members.delegate.addLast(it) })
                         }
@@ -395,3 +358,39 @@ internal object MessageSvcPbGetMsg : OutgoingPacketFactory<MessageSvcPbGetMsg.Re
     }
 }
 
+
+internal suspend fun QQAndroidBot.getNewGroup(groupCode: Long): Group? {
+    val troopNum = network.run {
+        FriendList.GetTroopListSimplify(client)
+            .sendAndExpect<FriendList.GetTroopListSimplify.Response>(timeoutMillis = 10_000, retry = 5)
+    }.groups.firstOrNull { it.groupCode == groupCode } ?: return null
+
+    @Suppress("DuplicatedCode")
+    return GroupImpl(
+        bot = this,
+        coroutineContext = coroutineContext,
+        id = groupCode,
+        groupInfo = _lowLevelQueryGroupInfo(troopNum.groupCode).apply {
+            this as GroupInfoImpl
+
+            if (this.delegate.groupName == null) {
+                this.delegate.groupName = troopNum.groupName
+            }
+
+            if (this.delegate.groupMemo == null) {
+                this.delegate.groupMemo = troopNum.groupMemo
+            }
+
+            if (this.delegate.groupUin == null) {
+                this.delegate.groupUin = troopNum.groupUin
+            }
+
+            this.delegate.groupCode = troopNum.groupCode
+        },
+        members = _lowLevelQueryGroupMemberList(
+            troopNum.groupUin,
+            troopNum.groupCode,
+            troopNum.dwGroupOwnerUin
+        )
+    )
+}

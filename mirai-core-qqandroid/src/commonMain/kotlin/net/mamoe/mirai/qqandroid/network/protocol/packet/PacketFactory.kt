@@ -122,7 +122,9 @@ internal typealias PacketConsumer<T> = suspend (packetFactory: PacketFactory<T>,
  * 它默认是关闭的.
  */
 @PublishedApi
-internal val PacketLogger: MiraiLoggerWithSwitch = DefaultLogger("Packet").withSwitch(false)
+internal val PacketLogger: MiraiLoggerWithSwitch by lazy {
+    DefaultLogger("Packet").withSwitch(false)
+}
 
 internal object KnownPacketFactories {
     object OutgoingFactories : List<OutgoingPacketFactory<*>> by mutableListOf(
@@ -239,7 +241,7 @@ internal object KnownPacketFactories {
         consumer: PacketConsumer<T>
     ) {
         if (it.packetFactory == null) {
-            bot.network.logger.debug("Received commandName: ${it.commandName}")
+            bot.network.logger.debug { "Received unknown commandName: ${it.commandName}" }
             PacketLogger.warning { "找不到 PacketFactory" }
             PacketLogger.verbose {
                 "传递给 PacketFactory 的数据 = ${it.data.useBytes { data, length ->

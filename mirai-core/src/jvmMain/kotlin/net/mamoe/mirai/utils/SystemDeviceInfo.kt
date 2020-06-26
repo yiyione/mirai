@@ -12,6 +12,7 @@ package net.mamoe.mirai.utils
 import kotlinx.io.core.toByteArray
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import kotlinx.serialization.UnstableDefault
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import net.mamoe.mirai.utils.internal.md5
@@ -22,18 +23,16 @@ import kotlin.random.nextInt
 /**
  * 加载一个设备信息. 若文件不存在或为空则随机并创建一个设备信息保存.
  */
-fun File.loadAsDeviceInfo(context: Context = ContextImpl()): DeviceInfo {
+fun File.loadAsDeviceInfo(json: Json, context: Context = ContextImpl()): DeviceInfo {
     if (!this.exists() || this.length() == 0L) {
         return SystemDeviceInfo(context).also {
-            this.writeText(JSON.stringify(SystemDeviceInfo.serializer(), it))
+            this.writeText(json.stringify(SystemDeviceInfo.serializer(), it))
         }
     }
-    return JSON.parse(DeviceInfoData.serializer(), this.readText()).also {
+    return json.parse(DeviceInfoData.serializer(), this.readText()).also {
         it.context = context
     }
 }
-
-private val JSON = Json(JsonConfiguration.Stable)
 
 @Serializable
 actual open class SystemDeviceInfo actual constructor() : DeviceInfo() {

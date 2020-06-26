@@ -12,6 +12,8 @@
 
 package net.mamoe.mirai.qqandroid.network.protocol.packet.chat.receive
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.io.core.ByteReadPacket
 import kotlinx.io.core.discardExact
 import kotlinx.io.core.readUByte
@@ -25,11 +27,13 @@ import net.mamoe.mirai.qqandroid.QQAndroidBot
 import net.mamoe.mirai.qqandroid.contact.GroupImpl
 import net.mamoe.mirai.qqandroid.contact.MemberImpl
 import net.mamoe.mirai.qqandroid.contact.checkIsMemberImpl
+import net.mamoe.mirai.qqandroid.message.contextualBugReportException
 import net.mamoe.mirai.qqandroid.network.Packet
 import net.mamoe.mirai.qqandroid.network.protocol.data.proto.OnlinePushTrans
 import net.mamoe.mirai.qqandroid.network.protocol.packet.IncomingPacketFactory
 import net.mamoe.mirai.qqandroid.network.protocol.packet.OutgoingPacket
 import net.mamoe.mirai.qqandroid.network.protocol.packet.buildResponseUniPacket
+import net.mamoe.mirai.qqandroid.utils._miraiContentToString
 import net.mamoe.mirai.qqandroid.utils.io.serialization.readProtoBuf
 import net.mamoe.mirai.qqandroid.utils.read
 
@@ -116,16 +120,26 @@ internal object OnlinePushPbPushTransMsg :
                         0x82 -> bot.getGroupByUinOrNull(groupUin)?.let { group ->
                             val member = group.getOrNull(target) as? MemberImpl ?: return null
                             return MemberLeaveEvent.Quit(member.also {
+                                member.cancel(CancellationException("Leaved actively"))
                                 group.members.delegate.remove(member)
                             })
                         }
                         0x83 -> bot.getGroupByUin(groupUin).let { group ->
                             val member = group.getOrNull(target) as? MemberImpl ?: return null
                             return MemberLeaveEvent.Kick(member.also {
+                                member.cancel(CancellationException("Leaved actively"))
                                 group.members.delegate.remove(member)
                             }, group.members[operator])
                         }
                     }
+                }
+                else -> {
+                    throw contextualBugReportException(
+                        "解析 OnlinePush.PbPushTransMsg, msgType=${content.msgType}",
+                        content._miraiContentToString(),
+                        null,
+                        "并描述此时机器人是否被踢出, 或是否有成员列表变更等动作."
+                    )
                 }
             }
         }

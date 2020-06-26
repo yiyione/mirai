@@ -6,39 +6,88 @@
  *
  * https://github.com/mamoe/mirai/blob/master/LICENSE
  */
-@file:Suppress("unused", "DEPRECATION_ERROR")
+@file:Suppress("unused", "DEPRECATION_ERROR", "EXPOSED_SUPER_CLASS")
 
 package net.mamoe.mirai.utils
 
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.serialization.UnstableDefault
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonConfiguration
 import net.mamoe.mirai.Bot
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.jvm.JvmField
-import kotlin.jvm.JvmOverloads
 import kotlin.jvm.JvmStatic
+import kotlin.jvm.JvmSynthetic
 
 /**
- * [Bot] 配置
+ * [Bot] 配置.
+ *
+ * Kotlin 使用方法:
+ * ```
+ * val bot = Bot(...) {
+ *    // 在这里配置 Bot
+ *
+ *    bogLoggerSupplier = { bot -> ... }
+ *    fileBasedDeviceInfo()
+ *    inheritCoroutineContext() // 使用 `coroutineScope` 的 Job 作为父 Job
+ * }
+ * ```
  */
+expect open class BotConfiguration() : BotConfigurationBase {
+    /**
+     * 设备信息覆盖. 在没有手动指定时将会通过日志警告, 并使用随机设备信息.
+     * @see randomDeviceInfo 使用随机设备信息
+     */
+    var deviceInfo: ((Context) -> DeviceInfo)?
+
+    /**
+     * 使用随机设备信息.
+     *
+     * @see deviceInfo
+     */
+    @ConfigurationDsl
+    fun randomDeviceInfo()
+
+    companion object {
+        /** 默认的配置实例. 可以进行修改 */
+        @JvmStatic
+        val Default: BotConfiguration
+    }
+
+    fun copy(): BotConfiguration
+}
+
+@MiraiInternalAPI
 @Suppress("PropertyName")
-open class BotConfiguration {
-    /** 日志记录器 */
-    var botLoggerSupplier: ((Bot) -> MiraiLogger) = { DefaultLogger("Bot(${it.id})") }
+@SinceMirai("1.1.0")
+internal open class BotConfigurationBase internal constructor() {
+    /**
+     * 日志记录器
+     *
+     * - 默认打印到标准输出, 通过 [DefaultLogger]
+     * - 忽略所有日志: [noBotLog]
+     * - 重定向到一个目录: `networkLoggerSupplier = { DirectoryLogger("Net ${it.id}") }`
+     * - 重定向到一个文件: `networkLoggerSupplier = { SingleFileLogger("Net ${it.id}") }`
+     *
+     * @see MiraiLogger
+     */
+    var botLoggerSupplier: ((Bot) -> MiraiLogger) = { DefaultLogger("Bot ${it.id}") }
 
     /**
      * 网络层日志构造器
-     * @see noNetworkLog 不显示网络日志
+     *
+     * - 默认打印到标准输出, 通过 [DefaultLogger]
+     * - 忽略所有日志: [noNetworkLog]
+     * - 重定向到一个目录: `networkLoggerSupplier = { DirectoryLogger("Net ${it.id}") }`
+     * - 重定向到一个文件: `networkLoggerSupplier = { SingleFileLogger("Net ${it.id}") }`
+     *
+     * @see MiraiLogger
      */
-    var networkLoggerSupplier: ((Bot) -> MiraiLogger) = { DefaultLogger("Network(${it.id})") }
-
-    /**
-     * 设备信息覆盖. 默认使用随机的设备信息.
-     * @see fileBasedDeviceInfo 使用文件
-     */
-    var deviceInfo: ((Context) -> DeviceInfo)? = null
+    var networkLoggerSupplier: ((Bot) -> MiraiLogger) = { DefaultLogger("Net ${it.id}") }
 
     /** 父 [CoroutineContext]. [Bot] 创建后会使用 [SupervisorJob] 覆盖其 [Job], 但会将这个 [Job] 作为父 [Job] */
     var parentCoroutineContext: CoroutineContext = EmptyCoroutineContext
@@ -72,6 +121,16 @@ open class BotConfiguration {
     @MiraiExperimentalAPI
     var fileCacheStrategy: FileCacheStrategy = FileCacheStrategy.PlatformDefault
 
+    /**
+     * Json 序列化器, 使用 'kotlinx.serialization'
+     */
+    @SinceMirai("1.1.0")
+    @MiraiExperimentalAPI
+    var json: Json = kotlin.runCatching {
+        @OptIn(UnstableDefault::class)
+        Json(JsonConfiguration(isLenient = true, ignoreUnknownKeys = true))
+    }.getOrElse { Json(JsonConfiguration.Stable) }
+
     enum class MiraiProtocol(
         /** 协议模块使用的 ID */
         @JvmField internal val id: Long
@@ -93,14 +152,9 @@ open class BotConfiguration {
         ANDROID_PAD(537062409)
     }
 
-    companion object {
-        /** 默认的配置实例. 可以进行修改 */
-        @JvmStatic
-        val Default = BotConfiguration()
-    }
-
     /**
-     * 不显示网络日志
+     * 不显示网络日志. 不推荐.
+     * @see networkLoggerSupplier 更多日志处理方式
      */
     @ConfigurationDsl
     fun noNetworkLog() {
@@ -108,15 +162,12 @@ open class BotConfiguration {
     }
 
     /**
-     * 使用文件存储设备信息
-     *
-     * 此函数只在 JVM 和 Android 有效. 在其他平台将会抛出异常.
-     * @param filepath 文件路径. 可相对于程序运行路径 (`user.dir`), 也可以是绝对路径.
+     * 不显示 [Bot] 日志. 不推荐.
+     * @see botLoggerSupplier 更多日志处理方式
      */
     @ConfigurationDsl
-    @JvmOverloads
-    fun fileBasedDeviceInfo(filepath: String = "device.json") {
-        deviceInfo = getFileBasedDeviceInfoSupplier(filepath)
+    fun noBotLog() {
+        botLoggerSupplier = { _ -> SilentLogger }
     }
 
     /**
@@ -171,6 +222,7 @@ open class BotConfiguration {
      *
      * @see parentCoroutineContext
      */
+    @JvmSynthetic
     @ConfigurationDsl
     suspend inline fun inheritCoroutineContext() {
         parentCoroutineContext = coroutineContext
@@ -180,24 +232,12 @@ open class BotConfiguration {
     @Target(AnnotationTarget.FUNCTION)
     @DslMarker
     annotation class ConfigurationDsl
-
-    fun copy(): BotConfiguration {
-        return BotConfiguration().also { new ->
-            new.botLoggerSupplier = botLoggerSupplier
-            new.networkLoggerSupplier = networkLoggerSupplier
-            new.deviceInfo = deviceInfo
-            new.parentCoroutineContext = parentCoroutineContext
-            new.heartbeatPeriodMillis = heartbeatPeriodMillis
-            new.heartbeatTimeoutMillis = heartbeatTimeoutMillis
-            new.firstReconnectDelayMillis = firstReconnectDelayMillis
-            new.reconnectPeriodMillis = reconnectPeriodMillis
-            new.reconnectionRetryTimes = reconnectionRetryTimes
-            new.loginSolver = loginSolver
-            new.protocol = protocol
-            new.fileCacheStrategy = fileCacheStrategy
-        }
-    }
 }
 
-@OptIn(ExperimentalMultiplatform::class)
-internal expect fun getFileBasedDeviceInfoSupplier(filename: String): ((Context) -> DeviceInfo)?
+internal val deviceInfoStub: (Context) -> DeviceInfo = {
+    @Suppress("DEPRECATION")
+    MiraiLogger.warning("未指定设备信息, 已使用随机设备信息. 请查看 BotConfiguration.deviceInfo 以获取更多信息.")
+    @Suppress("DEPRECATION")
+    MiraiLogger.warning("Device info isn't specified. Please refer to BotConfiguration.deviceInfo for more information")
+    SystemDeviceInfo()
+}
